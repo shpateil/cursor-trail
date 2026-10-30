@@ -143,7 +143,14 @@ impl Painter {
         let samples: Vec<Sample> = dense;
 
         if cfg.style == STYLE_BRUSH {
-            let smoothed = chaikin(&samples, cfg.smoothing as usize);
+            // catmull-rom вместо chaikin: строит гладкую кривую ЧЕРЕЗ точки и
+            // скругляет углы до дуг, chaikin на плотной сетке режет угол всего
+            // на пару пикселей и углы остаются заметными
+            let smoothed = if cfg.smoothing > 0 {
+                catmull_rom(&samples, 4)
+            } else {
+                samples
+            };
             self.paint_ribbon(pm, &smoothed, cfg, s)
         } else if cfg.style == STYLE_STARS {
             self.paint_stars(pm, &samples, cfg, s)
@@ -514,6 +521,56 @@ fn push_quad(
     pb.line_to(x1 - nx1 * h1, y1 - ny1 * h1);
     pb.close();
     true
+}
+
+// catmull-rom сплайн: гладкая кривая через контрольные точки. samples_per_seg
+// точек на сегмент, дублируем крайние точки чтобы кривая не обрезалась
+fn catmull_rom(input: &[Sample], samples_per_seg: u32) -> Vec<Sample> {
+    if input.len() < 3 {
+        return input.to_vec();
+    }
+    let mut out: Vec<Sample> = Vec::with_capacity(input.len() * samples_per_seg as usize);
+    let first = input[0];
+    let last = *input.last().unwrap();
+    let mut knots: Vec<Sample> = Vec::with_capacity(input.len() + 2);
+    knots.push(Sample {
+        x: 2.0 * first.x - input[1].x,
+        y: 2.0 * first.y - input[1].y,
+        age_ms: first.age_ms,
+        t_abs: first.t_abs,
+        speed: first.speed,
+    });
+    knots.extend_from_slice(input);
+    knots.push(Sample {
+        x: 2.0 * last.x - input[input.len() - 2].x,
+        y: 2.0 * last.y - input[input.len() - 2].y,
+        age_ms: last.age_ms,
+        t_abs: last.t_abs,
+        speed: last.speed,
+    });
+    let n_sub = samples_per_seg as usize;
+    for i in 1..knots.len() - 2 {
+        let (p0, p1, p2, p3) = (&knots[i - 1], &knots[i], &knots[i + 1], &knots[i + 2]);
+        out.push(p1.clone());
+        for k in 1..n_sub {
+            let t = k as f32 / n_sub as f32;
+            let t2 = t * t;
+            let t3 = t2 * t;
+            out.push(Sample {
+                x: 0.5 * ((2.0 * p1.x) + (-p0.x + p2.x) * t
+                    + (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2
+                    + (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3),
+                y: 0.5 * ((2.0 * p1.y) + (-p0.y + p2.y) * t
+                    + (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2
+                    + (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3),
+                age_ms: lerp(p1.age_ms, p2.age_ms, t),
+                t_abs: p1.t_abs,
+                speed: lerp(p1.speed, p2.speed, t),
+            });
+        }
+    }
+    out.push(last);
+    out
 }
 
 // сглаживание Chaikin: 2 прохода дают заметно глаже ломаную
