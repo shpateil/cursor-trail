@@ -110,9 +110,13 @@ impl Painter {
             });
         }
 
-        // скорость сглаживаем: одиночные скачки дают рваную ширину
+        // скорость сглаживаем: одиночные скачки дают рваную ширину.
+        // ema назад по хвосту: чем дальше сегмент от головы, тем сильнее сглажен,
+        // у головы скорость живая (ширина реагирует мгновенно), в хвосте ровная
         for i in 1..samples.len() {
-            samples[i].speed = lerp(samples[i - 1].speed, samples[i].speed, 0.5);
+            // коэффициент тем меньше, чем старее точка: у головы ~0.5, в хвосте ~0.1
+            let k = 0.5 / (1.0 + i as f32 * 0.35);
+            samples[i].speed = lerp(samples[i].speed, samples[i - 1].speed, 1.0 - k);
         }
 
         // интерполяция головы: ipc приходит раз в ~16мс и на быстром взмахе даёт
@@ -288,6 +292,12 @@ impl Painter {
                     let sp_b = smooth_step((b.speed - cfg.activation_speed) / (full - cfg.activation_speed).max(1.0));
                     let wa = width_for(life_a, sp_a, cfg) * width_scale;
                     let wb = width_for(life_b, sp_b, cfg) * width_scale;
+                    // хвост сводится в точку на последних 6% жизни: плоский срез
+                    // на конце выглядит обрубленным, нужен мягкий кончик
+                    let tip_a = smooth_step(life_a / 0.06);
+                    let tip_b = smooth_step(life_b / 0.06);
+                    let wa = wa * tip_a;
+                    let wb = wb * tip_b;
                     if push_quad(
                         &mut pb,
                         a.x, a.y, jn_x[i], jn_y[i], wa,
