@@ -277,6 +277,9 @@ impl Painter {
                 // все квады корзины в один путь: наложение не удваивает альфу
                 let mut pb = PathBuilder::new();
                 let mut any = false;
+                // стежки на головных рёбрах: стык с соседней (более старой) корзиной,
+                // там антиалиасинг двух разных fill'ов даёт волосяную щель
+                let mut stitch_at: Option<(f32, f32, f32, f32, f32)> = None;
                 for &i in segs {
                     let (a, b) = (&samples[i], &samples[i + 1]);
                     let life_a = clamp01(1.0 - a.age_ms / lifetime_for(a.speed, cfg));
@@ -292,11 +295,20 @@ impl Painter {
                     ) {
                         any = true;
                     }
+                    // головное ребро корзины: соседний сегмент уже в другой корзине
+                    // (иначе бы попал в segs). стежок только если справа есть сегмент
+                    if i + 2 < samples.len() && seg_life_of(i + 1, samples, cfg) < bucket_start(bucket + 1) {
+                        stitch_at = Some((b.x, b.y, jn_x[i + 1], jn_y[i + 1], wb * 0.5));
+                    }
                     // голова следа: круглый наконечник вместо плоского среза
                     if i + 2 == samples.len() {
                         pb.push_circle(b.x, b.y, wb * 0.5);
                         any = true;
                     }
+                }
+                if let Some((sx, sy, snx, sny, shw)) = stitch_at {
+                    push_stitch(&mut pb, sx, sy, snx, sny, shw);
+                    any = true;
                 }
                 if !any {
                     continue;
@@ -506,6 +518,20 @@ fn width_for(life: f32, speed_norm: f32, cfg: &Config) -> f32 {
     (0.18 + 17.5 * speed_norm.sqrt() * tail_curve(life)) * cfg.thickness
 }
 
+// жизнь сегмента i (среднее по концам), для определения границ корзин
+fn seg_life_of(i: usize, samples: &[Sample], cfg: &Config) -> f32 {
+    let a = &samples[i];
+    let b = &samples[i + 1];
+    let life_a = clamp01(1.0 - a.age_ms / lifetime_for(a.speed, cfg));
+    let life_b = clamp01(1.0 - b.age_ms / lifetime_for(b.speed, cfg));
+    (tail_curve(life_a) + tail_curve(life_b)) * 0.5
+}
+
+// нижняя граница корзины (значение seg_life, с которого корзина начинается)
+fn bucket_start(bucket: usize) -> f32 {
+    bucket as f32 / 16.0
+}
+
 // добавляет квад между двумя точками. ширина задаётся в СТЫКАХ: кромка каждого
 // стыка считается по усреднённой нормали, общей для обоих смежных квадов, поэтому
 // на поворотах кромки соседей совпадают и щелей/наложений не возникает
@@ -521,6 +547,22 @@ fn push_quad(
     pb.line_to(x1 - nx1 * h1, y1 - ny1 * h1);
     pb.close();
     true
+}
+
+// стежок на стыке двух корзин: соседние корзины это разные fill'ы и антиалиасинг
+// на их общем ребре даёт волосяную щель. тонкая 1px накладка поперёк ленты ровно
+// на ребре добивает покрытие только там где щель. перекрытие ВСЕЙ ленты не годится:
+// на полупрозрачных заливках оно даёт полосы двойной плотности (проверено на практике)
+fn push_stitch(pb: &mut PathBuilder, x: f32, y: f32, nx: f32, ny: f32, half_w: f32) {
+    // касательная к ленте в стыке
+    let (tx, ty) = (-ny, nx);
+    let h = half_w + 0.5; // чуть шире ленты, накрывает aa кромок
+    let t = 0.5; // полутолщина в обе стороны = 1px вдоль хода
+    pb.move_to(x + nx * h + tx * t, y + ny * h + ty * t);
+    pb.line_to(x + nx * h - tx * t, y + ny * h - ty * t);
+    pb.line_to(x - nx * h - tx * t, y - ny * h - ty * t);
+    pb.line_to(x - nx * h + tx * t, y - ny * h + ty * t);
+    pb.close();
 }
 
 // catmull-rom сплайн: гладкая кривая через контрольные точки. samples_per_seg
