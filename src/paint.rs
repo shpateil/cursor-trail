@@ -508,17 +508,32 @@ fn width_for(life: f32, speed_norm: f32, cfg: &Config) -> f32 {
 
 // добавляет квад между двумя точками. ширина задаётся в СТЫКАХ: кромка каждого
 // стыка считается по усреднённой нормали, общей для обоих смежных квадов, поэтому
-// на поворотах кромки соседей совпадают и щелей/наложений не возникает
+// грубых разрывов нет. сегменты дополнительно удлиняются на EDGE_OVERLAP вдоль
+// хода: квады из РАЗНЫХ корзин затухания это разные fill'ы, и антиалиасинг на
+// общем ребре двух путей даёт волосяную щель — перекрытие её убирает
+const EDGE_OVERLAP: f32 = 0.5;
+
 fn push_quad(
     pb: &mut PathBuilder,
     x1: f32, y1: f32, nx1: f32, ny1: f32, w1: f32,
     x2: f32, y2: f32, nx2: f32, ny2: f32, w2: f32,
 ) -> bool {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    let len = (dx * dx + dy * dy).sqrt();
+    let (ex1, ey1, ex2, ey2) = if len > 0.01 {
+        // удлиняем: начало назад, конец вперёд, оба на EDGE_OVERLAP
+        let ux = dx / len * EDGE_OVERLAP;
+        let uy = dy / len * EDGE_OVERLAP;
+        (x1 - ux, y1 - uy, x2 + ux, y2 + uy)
+    } else {
+        (x1, y1, x2, y2)
+    };
     let (h1, h2) = (w1 * 0.5, w2 * 0.5);
-    pb.move_to(x1 + nx1 * h1, y1 + ny1 * h1);
-    pb.line_to(x2 + nx2 * h2, y2 + ny2 * h2);
-    pb.line_to(x2 - nx2 * h2, y2 - ny2 * h2);
-    pb.line_to(x1 - nx1 * h1, y1 - ny1 * h1);
+    pb.move_to(ex1 + nx1 * h1, ey1 + ny1 * h1);
+    pb.line_to(ex2 + nx2 * h2, ey2 + ny2 * h2);
+    pb.line_to(ex2 - nx2 * h2, ey2 - ny2 * h2);
+    pb.line_to(ex1 - nx1 * h1, ey1 - ny1 * h1);
     pb.close();
     true
 }
