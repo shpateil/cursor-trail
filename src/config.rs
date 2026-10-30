@@ -61,6 +61,7 @@ pub struct Config {
     pub fade_exp: f32,          // степень затухания (osu использует 1.7)
     pub spin: f32,              // доворот штампов по пути, 0 = без вращения
     pub rotate_to_motion: bool, // ориентировать штамп по направлению движения
+    pub hide_on_fullscreen: bool, // гасить след в фуллскрин-окнах (игры)
 }
 
 impl Default for Config {
@@ -88,6 +89,7 @@ impl Default for Config {
             fade_exp: 1.7,
             spin: 0.0,
             rotate_to_motion: true,
+            hide_on_fullscreen: true,
         }
     }
 }
@@ -155,6 +157,7 @@ pub fn load_file() -> Config {
             "fade_exp" => cfg.fade_exp = v.parse().unwrap_or(cfg.fade_exp),
             "spin" => cfg.spin = v.parse().unwrap_or(cfg.spin),
             "rotate_to_motion" => cfg.rotate_to_motion = v == "true" || v == "1",
+            "hide_on_fullscreen" => cfg.hide_on_fullscreen = v != "false" && v != "0",
             _ => {}
         }
     }
@@ -192,6 +195,8 @@ pub fn parse_args() -> Config {
             "--spin" => num(&mut cfg.spin),
             "--no-rotate" => cfg.rotate_to_motion = false,
             "--rotate" => cfg.rotate_to_motion = true,
+            "--show-fullscreen" => cfg.hide_on_fullscreen = false,
+            "--hide-fullscreen" => cfg.hide_on_fullscreen = true,
             "--shape" => {
                 cfg.shape = it.next().unwrap_or_else(|| {
                     eprintln!("--shape needs a value");

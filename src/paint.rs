@@ -115,6 +115,33 @@ impl Painter {
             samples[i].speed = lerp(samples[i - 1].speed, samples[i].speed, 0.5);
         }
 
+        // интерполяция головы: ipc приходит раз в ~16мс и на быстром взмахе даёт
+        // прыжки по 30-80px, chaikin между двумя далёкими точками не спасает и
+        // голова дёргается. досыпаем точки так, чтобы соседние были не дальше
+        // 6px: плотность растёт только на длинных прыжках, на медленном ходе
+        // ничего не меняется
+        const MAX_SEG: f32 = 6.0;
+        let mut dense: Vec<Sample> = Vec::with_capacity(samples.len() * 2);
+        dense.push(samples[0]);
+        for w in samples.windows(2) {
+            let (a, b) = (&w[0], &w[1]);
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let len = (dx * dx + dy * dy).sqrt();
+            let steps = (len / MAX_SEG).ceil().max(1.0) as usize;
+            for k in 1..=steps {
+                let t = k as f32 / steps as f32;
+                dense.push(Sample {
+                    x: a.x + dx * t,
+                    y: a.y + dy * t,
+                    age_ms: lerp(a.age_ms, b.age_ms, t),
+                    t_abs: if t < 1.0 { a.t_abs } else { b.t_abs },
+                    speed: lerp(a.speed, b.speed, t),
+                });
+            }
+        }
+        let samples: Vec<Sample> = dense;
+
         if cfg.style == STYLE_BRUSH {
             let smoothed = chaikin(&samples, cfg.smoothing as usize);
             self.paint_ribbon(pm, &smoothed, cfg, s)
@@ -195,6 +222,9 @@ impl Painter {
         // вдвое меньше, переходы не видны как ступеньки
         const BUCKETS: usize = 16;
 
+        // аддитивный ореол: свет складывается с фоном, это и даёт неоновое
+        // свечение как в osu. тело и ядро остаются обычной краской, иначе на
+        // светлом фоне след исчезает (аддитив к белому ничего не даёт видимого)
         for (pass_idx, &(width_scale, base_alpha)) in passes.iter().enumerate() {
             let darkening = if pass_idx == 0 { 0.28 } else { 0.0 };
             let whitening = if pass_idx == 2 { 0.72 } else { 0.0 };
@@ -268,6 +298,12 @@ impl Painter {
                     let mut paint = tiny_skia::Paint::default();
                     paint.set_color(to_color(r, g, bb, alpha));
                     paint.anti_alias = true;
+                    // ореол складывается со свечением других корзин, свет копится
+                    paint.blend_mode = if pass_idx == 0 {
+                        tiny_skia::BlendMode::Plus
+                    } else {
+                        tiny_skia::BlendMode::SourceOver
+                    };
                     pm.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
                 }
             }

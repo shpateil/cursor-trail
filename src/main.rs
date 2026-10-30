@@ -351,15 +351,39 @@ impl Ipc {
         })
     }
 
-    fn cursor(&self) -> Option<(f32, f32)> {
+    // один запрос к hyprland ipc: шлёт команду, читает ответ целиком
+    fn request(&self, cmd: &str) -> Option<String> {
         let mut s = UnixStream::connect(&self.path).ok()?;
         s.set_read_timeout(Some(Duration::from_millis(50))).ok()?;
-        s.write_all(b"/cursorpos").ok()?;
-        let mut buf = [0u8; 64];
+        s.write_all(cmd.as_bytes()).ok()?;
+        let mut buf = [0u8; 256];
         let n = s.read(&mut buf).ok()?;
-        let txt = std::str::from_utf8(&buf[..n]).ok()?;
+        Some(String::from_utf8_lossy(&buf[..n]).into_owned())
+    }
+
+    fn cursor(&self) -> Option<(f32, f32)> {
+        let txt = self.request("/cursorpos")?;
         let (x, y) = txt.trim().split_once(',')?;
         Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+    }
+
+    // активное окно в фуллскрине? j/activewindow отвечает json'ом,
+    // строку "fullscreen": 1 выцепляем без парсера, его ради одного байта тащить жалко
+    fn fullscreen(&self) -> bool {
+        let Some(txt) = self.request("j/activewindow") else {
+            return false;
+        };
+        // нет активного окна (пустой ответ Invalid) — не фуллскрин
+        if txt.contains("Invalid") {
+            return false;
+        }
+        for line in txt.lines() {
+            let line = line.trim().trim_end_matches(',');
+            if let Some(rest) = line.strip_prefix("\"fullscreen\": ") {
+                return rest.trim() != "0";
+            }
+        }
+        false
     }
 }
 
@@ -509,16 +533,25 @@ fn main() {
     let mut ipc_fails = 0;
     let mut idle_since: Option<Instant> = None;
     let mut last_pos: Option<(f32, f32)> = None;
+    let mut fs_check: Option<Instant> = None;
+    let mut fs_now = false;
 
     while !app.exit {
         let now = Instant::now();
+
+        // фуллскрин дорогой запрос, дёргаем раз в 250мс а не каждый кадр
+        if cfg.hide_on_fullscreen && fs_check.map_or(true, |t| now.duration_since(t).as_millis() >= 250) {
+            fs_check = Some(now);
+            fs_now = ipc.fullscreen();
+        }
 
         match ipc.cursor() {
             Some((x, y)) => {
                 ipc_fails = 0;
                 // Compare with the last known position, not the end of the trail: once the trail has
                 // expired it is empty, and a stationary cursor would keep adding points forever.
-                if last_pos != Some((x, y)) {
+                // в фуллскрине точки не добавляем, след догорает сам
+                if last_pos != Some((x, y)) && !fs_now {
                     last_pos = Some((x, y));
                     trail.push(paint::Pt { x, y, t: now });
                 }
