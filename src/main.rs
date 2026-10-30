@@ -536,7 +536,21 @@ fn main() {
     let mut fs_check: Option<Instant> = None;
     let mut fs_now = false;
 
+    // чистый выход: по SIGTERM/SIGINT гасим последний кадр, иначе прозрачный
+    // оверлей остаётся висеть на экране пока слой не приберёт композитор
+    let term = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    signal_hook::flag::register(signal_hook::consts::SIGTERM, term.clone()).ok();
+    signal_hook::flag::register(signal_hook::consts::SIGINT, term.clone()).ok();
+
     while !app.exit {
+        if term.load(std::sync::atomic::Ordering::Relaxed) {
+            // стираем что было нарисовано и выходим
+            for o in &mut app.outs {
+                o.last = None;
+            }
+            app.draw(&[], Instant::now(), &cfg, &painter);
+            break;
+        }
         let now = Instant::now();
 
         // фуллскрин дорогой запрос, дёргаем раз в 250мс а не каждый кадр

@@ -166,7 +166,7 @@ impl Painter {
 
 
     // лента как в windtrail: три прохода, квады, корзины по жизни
-    fn paint_ribbon(&self, pm: &mut PixmapMut, samples: &[Sample], cfg: &Config, _s: f32) -> Option<(f32, f32, f32, f32)> {
+    fn paint_ribbon(&self, pm: &mut PixmapMut, samples: &[Sample], cfg: &Config, s: f32) -> Option<(f32, f32, f32, f32)> {
         if samples.len() < 2 {
             return None;
         }
@@ -333,6 +333,47 @@ impl Painter {
                     } else {
                         tiny_skia::BlendMode::SourceOver
                     };
+                    pm.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+                }
+            }
+        }
+
+        // блик головы: мягкое яркое пятно прямо в точке курсора. даёт «голову»
+        // которую глаз цепляет мгновенно, сама лента остаётся плавным шлейфом
+        if let Some(head) = samples.last() {
+            let life_head = clamp01(1.0 - head.age_ms / lifetime_for(head.speed, cfg));
+            let sp_head = smooth_step(
+                (head.speed - cfg.activation_speed) / (full - cfg.activation_speed).max(1.0),
+            );
+            let hw = width_for(life_head, sp_head, cfg);
+            let pulse = 1.0 + 0.25 * ((head.t_abs.elapsed().as_secs_f32() * 6.0).sin() * 0.5 + 0.5);
+            let rad = hw * (1.2 + 0.6 * sp_head) * pulse * s;
+            let head_alpha = 0.5 * stop_fade * clamp01(sp_head + 0.25);
+            if head_alpha > 0.01 {
+                let (hr, hg, hb) = cfg.color_head.rgb();
+                // ядро блика: почти белое, складывается аддитивом
+                let mut pb = PathBuilder::new();
+                pb.push_circle(head.x, head.y, rad * 0.45);
+                if let Some(path) = pb.finish() {
+                    let mut paint = tiny_skia::Paint::default();
+                    paint.set_color(to_color(
+                        lerp(hr, 1.0, 0.6),
+                        lerp(hg, 1.0, 0.6),
+                        lerp(hb, 1.0, 0.6),
+                        head_alpha,
+                    ));
+                    paint.anti_alias = true;
+                    paint.blend_mode = tiny_skia::BlendMode::Plus;
+                    pm.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+                }
+                // мягкий ореол блика поверх
+                let mut pb2 = PathBuilder::new();
+                pb2.push_circle(head.x, head.y, rad);
+                if let Some(path) = pb2.finish() {
+                    let mut paint = tiny_skia::Paint::default();
+                    paint.set_color(to_color(hr, hg, hb, head_alpha * 0.35));
+                    paint.anti_alias = true;
+                    paint.blend_mode = tiny_skia::BlendMode::Plus;
                     pm.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
                 }
             }
