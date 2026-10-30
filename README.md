@@ -1,34 +1,26 @@
-# cursor-trail (форк)
+# cursor-trail
 
-след за курсором для hyprland с темами и тремя стилями отрисовки.
-основа — seekator/cursor-trail (MIT), переделан рендер и добавлено управление.
+след за курсором для hyprland (wayland, wlr-layer-shell). rust + tiny-skia,
+без gpu, cpu в простое около нуля (кадры рисуются только пока след жив).
 
-## отличия от оригинала
+## визуал
+- лента переменной ширины: ширина и жизнь зависят от скорости движения
+- catmull-rom сглаживание, усреднённые нормали на стыках (без разрывов)
+- аддитивный ореол (plus blending), блик головы с лёгким пульсом
+- цвет по OKLab от головы (#ff5fd9) к хвосту (#8b5cf6)
+- три стиля: brush (лента), stamps (штампы), stars (частицы как в osu)
 
-- три стиля: `brush` (сужающийся мазок), `arrow` (шевроны как в osu), `particle` (ромбики/частицы)
-- сужение к хвосту (`--taper`) вместо постоянной толщины
-- градиент двух цветов (`--head` / `--tail`) вместо одного оттенка
-- свечение (`--glow`)
-- конфиг `~/.config/cursor-trail/config.toml`
-- `--dump-png` — отрендерить след в файл для проверки без скриншотов
+## запуск
+systemd user unit: `~/.config/systemd/user/cursor-trail.service`,
+управление через `cursor-trail-theme` (on/off/toggle/theme/set/status).
 
-## управление
+автостарт: unit в graphical-session.target, поднимается `cursor-trail-theme resume`
+из autostart.lua hyprland.
 
-```
-cursor-trail-theme on | off | toggle | status
-cursor-trail-theme theme <имя>     сменить тему
-cursor-trail-theme list            список тем
-cursor-trail-theme set --style arrow --head '#ff5fd9' --glow 0.6
-cursor-trail-theme preview <имя>   посмотреть на 6 секунд
-```
+## конфиг
+~/.config/cursor-trail/config.toml, ключи: life, max_width, taper, style, shape,
+color_head, color_tail, glow, thickness, smoothing, activation_speed, alpha,
+density, spin, hide_on_fullscreen и др. полный список: `cursor-trail --help`.
 
 ## сборка
-
-```bash
-export CARGO_HOME=/media/raid0/tmp/cargo-home
-cargo build --release --offline
-```
-
-## лицензия
-
-MIT, оригинал © seekator
+cargo build --release
