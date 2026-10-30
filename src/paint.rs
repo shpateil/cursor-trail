@@ -166,7 +166,7 @@ impl Painter {
 
 
     // лента как в windtrail: три прохода, квады, корзины по жизни
-    fn paint_ribbon(&self, pm: &mut PixmapMut, samples: &[Sample], cfg: &Config, s: f32) -> Option<(f32, f32, f32, f32)> {
+    fn paint_ribbon(&self, pm: &mut PixmapMut, samples: &[Sample], cfg: &Config, _s: f32) -> Option<(f32, f32, f32, f32)> {
         if samples.len() < 2 {
             return None;
         }
