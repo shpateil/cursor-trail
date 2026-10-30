@@ -1,0 +1,21 @@
+[package]
+name = "cursor-trail"
+version = "0.1.0"
+edition = "2021"
+description = "A lightweight rainbow cursor trail overlay for Hyprland (native Wayland layer-shell client)"
+license = "MIT"
+keywords = ["hyprland", "wayland", "cursor", "overlay"]
+categories = ["command-line-utilities"]
+readme = "README.md"
+
+[dependencies]
+rustix = { version = "1.1.5", features = ["mm"] }
+smithay-client-toolkit = { version = "0.21", default-features = false }
+tiny-skia = "0.12"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
