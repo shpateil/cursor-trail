@@ -700,12 +700,15 @@ pub fn dump_png(path: &str, cfg: &Config) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-// где лежит текстура звезды: рядом с бинарём или в исходниках проекта
+// где лежит текстура звезды: сначала пользовательский кэш, потом рядом с бинарём
 fn star_path() -> String {
-    let candidates = [
-        std::env::var("HOME").unwrap_or_default() + "/.local/share/cursor-trail/star.png",
-        std::env::var("HOME").unwrap_or_default() + "/projects/cursor-trail/assets/star.png",
-    ];
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut candidates = vec![home + "/.local/share/cursor-trail/star.png"];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("../assets/star.png").to_string_lossy().to_string());
+        }
+    }
     for c in candidates {
         if std::path::Path::new(&c).exists() {
             return c;
