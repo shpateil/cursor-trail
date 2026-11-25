@@ -1,0 +1,427 @@
+#!/bin/bash
+# cursor-trail-theme — темы и управление следом за курсором
+# тема = набор строк в config.toml; бинарь читает конфиг сам
+
+CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/cursor-trail"
+CFG="$CFG_DIR/config.toml"
+BIN="$HOME/.local/bin/cursor-trail"
+STATE_DIR="$HOME/.local/share/cursor-trail"
+FLAG="$STATE_DIR/disabled"
+STATE="$STATE_DIR/theme"
+
+mkdir -p "$CFG_DIR" "$STATE_DIR"
+
+# имя темы -> тело конфига
+theme_body() {
+    case "$1" in
+    pink)
+        cat <<'EOT'
+style = brush
+shape = blob
+life = 420
+max_width = 9
+taper = 0.85
+color_head = ff5fd9
+color_tail = 8b5cf6
+glow = 0.35
+alpha = 0.92
+fade = 1.7
+EOT
+        ;;
+    pink-arrow)
+        cat <<'EOT'
+style = stamps
+shape = chevron
+life = 380
+max_width = 12
+taper = 0.92
+color_head = ff5fd9
+color_tail = ff5fd9
+glow = 0.5
+alpha = 1.0
+density = 0.9
+fade = 1.6
+rotate_to_motion = true
+EOT
+        ;;
+    osu-stars)
+        cat <<'EOT'
+style = stars
+life = 420
+max_width = 10
+star_speed = 260
+star_spread = 70
+star_gravity = 1.0
+spawn_every = 14
+max_particles = 400
+color_head = ff5fd9
+color_tail = 8b5cf6
+alpha = 0.92
+EOT
+        ;;
+    osu-stars-ice)
+        cat <<'EOT'
+style = stars
+life = 420
+max_width = 15
+star_speed = 180
+star_spread = 55
+star_gravity = 0.85
+spawn_every = 18
+max_particles = 320
+color_head = ffffff
+color_tail = 7fb2ff
+alpha = 0.9
+EOT
+        ;;
+    osu-stars-gold)
+        cat <<'EOT'
+style = stars
+life = 420
+max_width = 8
+star_speed = 320
+star_spread = 90
+star_gravity = 1.2
+spawn_every = 9
+max_particles = 500
+color_head = ffd75f
+color_tail = ff8a3d
+alpha = 0.95
+EOT
+        ;;
+    osu)
+        cat <<'EOT'
+style = stamps
+shape = blob
+life = 300
+max_width = 16
+taper = 0.0
+color_head = ffffff
+color_tail = ffffff
+glow = 0.12
+alpha = 0.85
+density = 0.8
+fade = 1.7
+rotate_to_motion = false
+EOT
+        ;;
+    neon)
+        cat <<'EOT'
+style = brush
+shape = blob
+life = 520
+max_width = 7
+taper = 0.9
+color_head = 5ffbf1
+color_tail = 7b3ff2
+glow = 0.55
+alpha = 0.95
+fade = 1.9
+EOT
+        ;;
+    neon-arrow)
+        cat <<'EOT'
+style = stamps
+shape = chevron
+life = 460
+max_width = 13
+taper = 0.93
+color_head = 5ffbf1
+color_tail = 2b1a6b
+glow = 0.7
+alpha = 1.0
+density = 0.85
+fade = 1.8
+rotate_to_motion = true
+EOT
+        ;;
+    gold)
+        cat <<'EOT'
+style = brush
+shape = blob
+life = 400
+max_width = 8
+taper = 0.82
+color_head = ffd75f
+color_tail = ff8a3d
+glow = 0.4
+alpha = 0.95
+fade = 1.7
+EOT
+        ;;
+    ice)
+        cat <<'EOT'
+style = brush
+shape = blob
+life = 480
+max_width = 7
+taper = 0.88
+color_head = eaf6ff
+color_tail = 6fb7ff
+glow = 0.45
+alpha = 0.9
+fade = 1.8
+EOT
+        ;;
+    ghost)
+        cat <<'EOT'
+style = stamps
+shape = diamond
+life = 620
+max_width = 9
+taper = 0.8
+color_head = ffffff
+color_tail = 7a7a8c
+glow = 0.18
+alpha = 0.7
+density = 1.4
+fade = 2.2
+rotate_to_motion = false
+spin = 0.25
+EOT
+        ;;
+    ember)
+        cat <<'EOT'
+style = stamps
+shape = star
+life = 500
+max_width = 10
+taper = 0.85
+color_head = ffb35f
+color_tail = a32600
+glow = 0.6
+alpha = 0.95
+density = 1.1
+fade = 2.0
+rotate_to_motion = false
+spin = 0.4
+EOT
+        ;;
+    minimal)
+        cat <<'EOT'
+style = brush
+shape = blob
+life = 260
+max_width = 5
+taper = 0.95
+color_head = ffffff
+color_tail = ffffff
+glow = 0.0
+alpha = 0.75
+fade = 2.2
+EOT
+        ;;
+    ribbon)
+        cat <<'EOT'
+style = brush
+shape = blob
+life = 700
+max_width = 6
+taper = 0.7
+color_head = ff5fd9
+color_tail = 5fd9ff
+glow = 0.28
+alpha = 0.85
+fade = 1.9
+EOT
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
+running() { pgrep -x cursor-trail >/dev/null 2>&1; }
+
+start_trail() {
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    if [ -z "$WAYLAND_DISPLAY" ] && [ -S "$XDG_RUNTIME_DIR/wayland-1" ]; then
+        export WAYLAND_DISPLAY=wayland-1
+    fi
+    if [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
+        sig=$(ls "$XDG_RUNTIME_DIR/hypr" 2>/dev/null | head -1)
+        [ -n "$sig" ] && export HYPRLAND_INSTANCE_SIGNATURE="$sig"
+    fi
+    # systemd user unit: авторестарт при краше, чистый SIGTERM-выход
+    systemctl --user set-environment WAYLAND_DISPLAY="$WAYLAND_DISPLAY" HYPRLAND_INSTANCE_SIGNATURE="$HYPRLAND_INSTANCE_SIGNATURE" 2>/dev/null
+    systemctl --user start cursor-trail.service 2>/dev/null && return
+    # фоллбэк если systemd юнита нет: голый setsid
+    pkill -x cursor-trail 2>/dev/null
+    sleep 0.12
+    setsid "$BIN" >/dev/null 2>&1 &
+    sleep 0.25
+}
+
+stop_trail() {
+    systemctl --user stop cursor-trail.service 2>/dev/null || pkill -x cursor-trail 2>/dev/null
+    sleep 0.15
+}
+
+write_theme() {
+    {
+        echo "# тема $1, $(date +%F)"
+        theme_body "$1"
+    } > "$CFG"
+}
+
+usage() {
+    cat <<'EOF'
+cursor-trail-theme <команда>
+
+  on                 включить (текущая тема)
+  off                выключить
+  toggle             переключить
+  status             что сейчас
+
+  theme <имя>        сменить тему
+  list               список тем
+  preview <имя>      6 секунд показать тему, потом вернуть прежнюю
+
+  set <флаги...>     свои параметры
+                     пример: set --style stamps --shape chevron --head '#ff5fd9'
+
+темы: pink pink-arrow osu osu-stars osu-stars-ice osu-stars-gold
+      neon neon-arrow gold ice ghost ember minimal ribbon
+EOF
+}
+
+case "${1:-}" in
+resume)
+    # из autostart: поднимает только если не отключено
+    [ -f "$FLAG" ] || start_trail
+    ;;
+on)
+    rm -f "$FLAG"
+    start_trail
+    if running; then
+        echo "след включён (тема $(cat "$STATE" 2>/dev/null || echo pink))"
+    else
+        echo "не запустился"
+    fi
+    ;;
+off)
+    touch "$FLAG"
+    stop_trail
+    echo "след выключен"
+    ;;
+toggle)
+    if running; then
+        touch "$FLAG"
+        stop_trail
+        echo off
+    else
+        rm -f "$FLAG"
+        start_trail
+        echo on
+    fi
+    ;;
+status)
+    t=$(cat "$STATE" 2>/dev/null || echo pink)
+    if running; then
+        echo "включён, тема: $t, pid $(pgrep -x cursor-trail | head -1)"
+    else
+        echo "выключен, тема: $t"
+    fi
+    ;;
+list)
+    cat <<'EOT'
+pink        розовый мазок в фиолетовый, базовая
+pink-arrow  розовые шевроны-стрелки по направлению движения
+osu         как в osu по умолчанию: белые мягкие пятна, плотно
+osu-stars   звёзды из главного меню osu, розово-фиолетовые
+osu-stars-ice  те же звёзды, белые в голубой
+osu-stars-gold звёзды золотые, быстрые и плотные
+neon        циан в фиолетовый с сильным свечением
+neon-arrow  циановые шевроны со свечением
+gold        золотой мазок в оранжевый
+ice         белый в голубой
+ghost       серые ромбы, медленно вращаются
+ember       огненные звёзды
+minimal     тонкая белая черта без свечения
+ribbon      длинная лента розовый в голубой
+EOT
+    ;;
+theme)
+    if [ -z "${2:-}" ]; then
+        cat "$STATE" 2>/dev/null || echo pink
+        exit 0
+    fi
+    if ! theme_body "$2" >/dev/null; then
+        echo "нет такой темы: $2" >&2
+        echo "список: cursor-trail-theme list" >&2
+        exit 1
+    fi
+    write_theme "$2"
+    echo "$2" > "$STATE"
+    rm -f "$FLAG"
+    start_trail
+    if running; then
+        echo "тема: $2"
+    else
+        echo "тема записана, но процесс не поднялся" >&2
+        exit 1
+    fi
+    ;;
+set)
+    shift
+    {
+        echo "# свои настройки, $(date +%F)"
+        while [ $# -gt 0 ]; do
+            case "$1" in
+            --style) echo "style = $2"; shift 2 ;;
+            --shape) echo "shape = $2"; shift 2 ;;
+            --life) echo "life = $2"; shift 2 ;;
+            --max-width) echo "max_width = $2"; shift 2 ;;
+            --taper) echo "taper = $2"; shift 2 ;;
+            --head) echo "color_head = ${2#\#}"; shift 2 ;;
+            --tail) echo "color_tail = ${2#\#}"; shift 2 ;;
+            --glow) echo "glow = $2"; shift 2 ;;
+            --star-speed) echo "star_speed = $2"; shift 2 ;;
+            --star-spread) echo "star_spread = $2"; shift 2 ;;
+            --star-gravity) echo "star_gravity = $2"; shift 2 ;;
+            --spawn-every) echo "spawn_every = $2"; shift 2 ;;
+            --max-particles) echo "max_particles = $2"; shift 2 ;;
+            --thickness) echo "thickness = $2"; shift 2 ;;
+            --smoothing) echo "smoothing = $2"; shift 2 ;;
+            --activation) echo "activation_speed = $2"; shift 2 ;;
+            --alpha) echo "alpha = $2"; shift 2 ;;
+            --density) echo "density = $2"; shift 2 ;;
+            --fade) echo "fade = $2"; shift 2 ;;
+            --spin) echo "spin = $2"; shift 2 ;;
+            --rotate) echo "rotate_to_motion = true"; shift ;;
+            --no-rotate) echo "rotate_to_motion = false"; shift ;;
+            *)
+                echo "неизвестный флаг: $1" >&2
+                exit 2
+                ;;
+            esac
+        done
+    } > "$CFG"
+    rm -f "$STATE" "$FLAG"
+    start_trail
+    echo "свои настройки записаны и применены"
+    ;;
+preview)
+    th="${2:-}"
+    if ! theme_body "$th" >/dev/null; then
+        echo "нет такой темы: $th" >&2
+        exit 1
+    fi
+    old=$(cat "$STATE" 2>/dev/null || echo pink)
+    write_theme "$th"
+    start_trail
+    echo "показываю $th, 6 секунд"
+    sleep 6
+    write_theme "$old"
+    start_trail
+    echo "вернул $old"
+    ;;
+-h | --help | "")
+    usage
+    ;;
+*)
+    echo "неизвестная команда: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
